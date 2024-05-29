@@ -1,5 +1,11 @@
 # source: https://github.com/gwthomas/IQL-PyTorch
-# https://arxiv.org/pdf/2110.06169.pdf
+# and (CORL): https://github.com/tinkoff-ai/CORL/blob/main/algorithms/finetune/iql.py
+# IQL: https://arxiv.org/pdf/2110.06169.pdf
+# GRBRL: (Under Review)
+####################################################################################################
+# Docstrings were generated using ChatGPT (GPT3.5).                                                #
+# OpenAI. (2024). Docstrings for GuidedRollBackRL algorithm. Retrieved from ChatGPT on 22 May 2024.#
+####################################################################################################
 import os
 from dataclasses import asdict, dataclass, field
 
@@ -34,29 +40,27 @@ from iql import (
     wandb_init,
     wrap_env,
 )
-import jsrl_utils as jsrl
+import algorithms.finetune.grbrl_utils as grbrl
 import guide_heuristics as guide_heuristics
 
 
 @dataclass(kw_only=True)
-class JsrlTrainConfig(TrainConfig):
-    n_curriculum_stages: int = 10
-    tolerance: float = 0.05
-    learner_frac: float = 0.05
-    pretrained_policy_path: str = None
-    horizon_fn: str = "time_step"
-    downloaded_dataset: str = None
-    dataset_size: int = 1000000
-    new_online_buffer: bool = True
-    online_buffer_size: int = 10000
-    max_init_horizon: bool = False
-    env_config: dict = field(default_factory= lambda: {})
-    guide_heuristic_fn: str = None
-    no_agent_types: bool = False
-    variance_learn_frac: float = 0.5
-    enable_rollback: bool = True
-    sample_rate: float = 1.0
-    correct_learner_action: float = 0.0
+class GrbrlTrainConfig(TrainConfig):
+    n_curriculum_stages: int = 10  # Number of curriculum stages
+    tolerance: float = 0.75  # % of guide eval score to surpass
+    learner_frac: float = 0.05  # amount to increase 1-alpha by
+    horizon_fn: str = "time_step"  # Function to determine the horizon type
+    new_online_buffer: bool = True  # Whether to create a fresh online replay buffer
+    online_buffer_size: int = 10000  # Size of the online buffer
+    max_init_horizon: bool = False  # Whether to use the maximum or mean initial horizon (e.g. time step) as curriculum stage 1
+    guide_heuristic_fn: str = None  # Name of the guide heuristic function in guide_heuristics.py, if any
+    variance_learn_frac: float = 0.5  # if horizon=="variance", how often the variance learner should take a random action
+    enable_rollback: bool = True  # Set True for GRBRL, or False for SSRL
+    sample_rate: float = 1.0  # how often the guide action is set to non-optimal
+    correct_learner_action: float = 0.0  # how often the learner action if set to optimal (combo lock only)
+    env_config: dict = field(default_factory=lambda: {})  # Environment configuration parameters
+    downloaded_dataset: str = None  # Path to downloaded dataset, if any (pre-downloading the dataset is faster)
+    pretrained_policy_path: str = None  # Path to pretrained policy file, if any
 
 
 @torch.no_grad()
@@ -64,8 +68,35 @@ def eval_actor(
     env: gym.Env,
     learner: nn.Module,
     guide: nn.Module,
-    config: JsrlTrainConfig,
+    config: GrbrlTrainConfig,
 ) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Evaluate the performance of the combined learner and guide policy in the environment,
+    and collect metrics about the performance. This is also called initially just to evaluate
+    the performance of the guide policy.
+
+    Parameters
+    ----------
+    env : gym.Env
+        The Gym environment to evaluate the policy in.
+    learner : nn.Module
+        The learner policy model to be evaluated.
+    guide : nn.Module
+        The guide policy model used to assist the learner, if applicable.
+    config : GrbrlTrainConfig
+        The configuration parameters for the training and evaluation process.
+
+    Returns
+    -------
+    episode_rewards : np.ndarray
+        An array of total rewards obtained in each episode.
+    mean_successes : float
+        The mean success rate over all episodes.
+    mean_horizon : float
+        The mean horizon (e.g. time step, goal distance, variance) reached over all episodes.
+    mean_agent_types : float
+        The mean type of agent used (learner or guide) over all episodes.
+    """
     if isinstance(learner, GaussianPolicy):
         learner.eval()
     episode_rewards = []
@@ -97,7 +128,7 @@ def eval_actor(
                 config.ep_agent_type = 0
             else:
                 config.ep_agent_type = np.mean(ep_agent_types)
-            action, use_learner, horizon = jsrl.learner_or_guide_action(
+            action, use_learner, horizon = grbrl.learner_or_guide_action(
                 state, ts, env, learner, guide, config, config.device, eval=True
             )
             episode_horizons.append(horizon)
@@ -117,7 +148,7 @@ def eval_actor(
         if guide is None and config.max_init_horizon:
             horizons_reached.append(np.max(episode_horizons))
         else:
-            horizons_reached.append(jsrl.accumulate(episode_horizons))
+            horizons_reached.append(grbrl.accumulate(episode_horizons))
 
         agent_types.append(np.mean(ep_agent_types))
 
@@ -136,7 +167,33 @@ def eval_actor(
         np.mean(agent_types),
     )
 
-def jsrl_online_actor(config, env, actor, trainer, max_steps):
+def grbrl_online_actor(config, env, actor, trainer, max_steps):
+    """
+    Initialize and configure the online actor for GRBRL.
+
+    This function sets up the environment information, selects the guide agent, and configures the learning agent
+    based on the initial evaluation of the guide agent. It supports different horizon functions and curriculum stages.
+
+    Parameters
+    ----------
+    config : GrbrlTrainConfig
+        The configuration parameters for the GRBRL training process.
+    env : gym.Env
+        The Gym environment in which the agent will be trained.
+    trainer : Any
+        The initial trainer object for the learner agent.
+    max_steps : int
+        The maximum number of steps for the training process.
+
+    Returns
+    -------
+    trainer : Any
+        The configured trainer object for the learner agent.
+    guide : nn.Module
+        The guide policy model used to assist the learner.
+    config : GrbrlTrainConfig
+        The updated configuration parameters after initialization.
+    """
     env_info = {"state_dim": env.observation_space.shape[0],
                 "action_dim": env.action_space.shape[0],
                 "max_action": float(env.action_space.high[0])
@@ -144,15 +201,34 @@ def jsrl_online_actor(config, env, actor, trainer, max_steps):
     config.curriculum_stage = np.nan
     if config.n_curriculum_stages == 1:
         init_horizon = 0
-    guide, guide_trainer = jsrl.get_guide_agent(config, trainer, **env_info)
+    guide, guide_trainer = grbrl.get_guide_agent(config, trainer, **env_info)
     if config.horizon_fn == "variance":
-        config = jsrl.get_var_predictor(env, config, max_steps, guide)
+        config = grbrl.get_var_predictor(env, config, max_steps, guide)
     all_returns, _, init_horizon, _ = eval_actor(env, guide, None, config)
     mean_return = np.mean(all_returns)
-    trainer, config = jsrl.get_learning_agent(config, guide_trainer, init_horizon, mean_return, **env_info)
+    trainer, config = grbrl.get_learning_agent(config, guide_trainer, init_horizon, mean_return, **env_info)
     return trainer, guide, config
 
 def get_online_buffer(config, replay_buffer, state_dim, action_dim):
+    """
+    Initialize or reuse an online replay buffer for experience replay during training.
+
+    Parameters
+    ----------
+    config : GrbrlTrainConfig
+        The configuration parameters for the GRBRL training process, including buffer settings.
+    replay_buffer : ReplayBuffer or None
+        The existing replay buffer, if any. This buffer may be reused or replaced based on the configuration.
+    state_dim : int
+        The dimensionality of the state space.
+    action_dim : int
+        The dimensionality of the action space.
+
+    Returns
+    -------
+    online_replay_buffer : ReplayBuffer
+        The initialized or reused online replay buffer.
+    """
     if config.new_online_buffer:
         if replay_buffer is not None:
             del replay_buffer
@@ -166,8 +242,23 @@ def get_online_buffer(config, replay_buffer, state_dim, action_dim):
         online_replay_buffer = replay_buffer
     return online_replay_buffer
 
-def train(config: JsrlTrainConfig):
+def train(config: GrbrlTrainConfig):
+    """
+    Train an learning agent using GRBRL method (gradual online transfer from pre-trained guide agent to learner).
+    Also handles offline pre-training for D4RL environments.
+    Mostly a replica of the IQL code in the same file, with GRBRL function calls added.
 
+    Parameters
+    ----------
+    config : GrbrlTrainConfig
+        The configuration parameters for the GRBRL training process.
+
+    Returns
+    -------
+    None
+        The agent's model is saved periodically.
+    """
+    # Added functionality for handling both Gym/Gymnasium envs
     try:
         env = StepAPICompatibility(gymnasium.make(config.env, **config.env_config), output_truncation_bool=False)
         eval_env = StepAPICompatibility(gymnasium.make(config.env, **config.env_config), output_truncation_bool=False)
@@ -221,8 +312,6 @@ def train(config: JsrlTrainConfig):
             dataset["next_observations"], state_mean, state_std
         )
 
-        #dataset = dataset[:config.dataset_size]
-
         env = wrap_env(env, state_mean=state_mean, state_std=state_std)
         eval_env = wrap_env(eval_env, state_mean=state_mean, state_std=state_std)
         replay_buffer = ReplayBuffer(
@@ -253,12 +342,12 @@ def train(config: JsrlTrainConfig):
 
 
     print("---------------------------------------")
-    print(f"Training IQL, Env: {config.env}, Seed: {seed}")
+    print(f"Training IQL+GRB-RL, Env: {config.env}, Seed: {seed}")
     print("---------------------------------------")
 
     # Initialize actor
     if config.pretrained_policy_path is None and config.guide_heuristic_fn is None:
-        trainer = jsrl.make_actor(config, state_dim, action_dim, max_action, max_steps=config.offline_iterations)
+        trainer = grbrl.make_actor(config, state_dim, action_dim, max_action, max_steps=config.offline_iterations)
         if config.load_model != "":
             policy_file = Path(config.load_model)
             trainer.load_state_dict(torch.load(policy_file))
@@ -286,7 +375,7 @@ def train(config: JsrlTrainConfig):
     train_successes = []
 
 
-    jsrl.horizon_str = config.horizon_fn
+    grbrl.horizon_str = config.horizon_fn
     if config.pretrained_policy_path is not None:
         config.offline_iterations = 0
 
@@ -296,12 +385,14 @@ def train(config: JsrlTrainConfig):
             print("Online tuning")
             if config.guide_heuristic_fn is not None:
                 actor = getattr(guide_heuristics, config.guide_heuristic_fn)
-            trainer, guide, config = jsrl_online_actor(config, eval_env, actor, trainer, max_steps)
+            trainer, guide, config = grbrl_online_actor(config, eval_env, actor, trainer, max_steps)
             actor = trainer.actor
             online_replay_buffer = get_online_buffer(config, replay_buffer, state_dim, action_dim)
 
         online_log = {}
         if t >= config.offline_iterations:
+            # ep_agent_type == 1 -> 100% use of learner during ep
+            # ep_agent_type == 0 -> 100% use of guide during ep
             if episode_step == 0:
                 episode_agent_types = []
                 config.ep_agent_type = 0
@@ -310,7 +401,7 @@ def train(config: JsrlTrainConfig):
 
             episode_step += 1
 
-            action, use_learner, _ = jsrl.learner_or_guide_action(
+            action, use_learner, _ = grbrl.learner_or_guide_action(
                 state,
                 episode_step,
                 env,
@@ -423,8 +514,8 @@ def train(config: JsrlTrainConfig):
                         eval_log["eval/regret"] = np.mean(1 - np.array(train_successes))
                         eval_log["eval/success_rate"] = success_rate
 
-                    config = jsrl.horizon_update_callback(config, normalized, max_steps)
-                    eval_log = jsrl.add_jsrl_metrics(eval_log, config)
+                    config = grbrl.horizon_update_callback(config, normalized, max_steps)
+                    eval_log = grbrl.add_grbrl_metrics(eval_log, config)
                 if config.normalize_reward:
                     normalized_eval_score = normalized * 100.0
                     evaluations.append(normalized_eval_score)
@@ -448,4 +539,4 @@ def train(config: JsrlTrainConfig):
 
 
 if __name__ == "__main__":
-    train(pyrallis.parse(config_class=JsrlTrainConfig))
+    train(pyrallis.parse(config_class=GrbrlTrainConfig))

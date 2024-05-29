@@ -1,7 +1,7 @@
 import pyrallis
 import ray
 import os
-from jsrl_wrapper import JsrlTrainConfig, train
+from algorithms.finetune.iql_w_grbrl import JsrlTrainConfig, train
 import time
 
 

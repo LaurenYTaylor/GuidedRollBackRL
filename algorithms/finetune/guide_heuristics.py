@@ -2,6 +2,27 @@ import numpy as np
 
 
 def combination_lock(env, _, sample_rate):
+    """
+    Generates an action for solving a combination lock environment.
+
+    This function interacts with a combination lock environment, where the goal is to
+    correctly input a sequence of numbers. The function determines the next number
+    to input based on the environment's current step in the combination sequence.
+    It uses a sampling mechanism to occasionally introduce random actions.
+
+    Args:
+        env (gym.Env): The environment representing the combination lock.
+        _ (any): This parameter is ignored and included for compatibility with broader 
+                 interfaces that might pass additional arguments.
+        sample_rate (float): The probability of selecting a random number instead of the
+                correct next number in the sequence.
+
+    Returns:
+        np.ndarray: A one-hot encoded action array indicating the selected number to input
+                    for the current step. The length of the array matches the length of the
+                    combination sequence, with the selected number's index set to 1 and all
+                    others set to 0.
+    """
     next_number = env.unwrapped.combination[env.unwrapped.combo_step]
     next_num = int(next_number)
     action = np.zeros(len(env.unwrapped.combination))
@@ -15,6 +36,12 @@ def combination_lock(env, _, sample_rate):
 
 def lunar_lander(env, state):
     """
+    This modified heuristic originates from Farama Foundation:
+    https://github.com/Farama-Foundation/Gymnasium/blob/main/gymnasium/envs/box2d/lunar_lander.py
+    https://zenodo.org/records/11232524
+    
+    It is modified to be imperfect, so there is still a learning opportunity for an RL agent.
+    
     The heuristic for
     1. Testing
     2. Demonstration rollout.
@@ -70,6 +97,10 @@ def lunar_lander(env, state):
 
 def lunar_lander_perfect(env, state):
     """
+    This heuristic comes from Farama Foundation:
+    https://github.com/Farama-Foundation/Gymnasium/blob/main/gymnasium/envs/box2d/lunar_lander.py
+    https://zenodo.org/records/11232524
+    
     The heuristic for
     1. Testing
     2. Demonstration rollout.
