@@ -19,11 +19,159 @@ from iql import (
     GaussianPolicy,
     ImplicitQLearning,
     TwinQ,
-    ValueFunction
+    ValueFunction,
+    MLP
 )
 
 horizon_str = ""  # this is set in grbrl_w_iql.py
 
+
+class GRBRL(ImplicitQLearning):
+    def __init__(
+        self,
+        *args,
+        **kwargs
+    ):
+        self.alpha_network = kwargs["alpha_network"]
+        self.alpha_optimizer = kwargs["alpha_optimizer"]
+        del kwargs, "alpha_network"
+        del kwargs, "alpha_optimizer"
+        super().__init__(*args, **kwargs)
+
+    def _update_v(self, observations, actions, log_dict) -> torch.Tensor:
+        # Update value function
+        with torch.no_grad():
+            target_q = self.q_target(observations, actions)
+        
+        v = self.vf(observations)
+
+        adv = target_q - v
+        v_loss = asymmetric_l2_loss(adv, self.iql_tau)
+        log_dict["value_loss"] = v_loss.item()
+        self.v_optimizer.zero_grad()
+        v_loss.backward()
+        self.v_optimizer.step()
+        return adv
+
+    def _update_q(
+        self,
+        next_v: torch.Tensor,
+        observations: torch.Tensor,
+        actions: torch.Tensor,
+        rewards: torch.Tensor,
+        terminals: torch.Tensor,
+        log_dict: Dict,
+    ):
+        targets = rewards + (1.0 - terminals.float()) * self.discount * next_v.detach()
+        qs = self.qf.both(observations, actions)
+        q_loss = sum(F.mse_loss(q, targets) for q in qs) / len(qs)
+        log_dict["q_loss"] = q_loss.item()
+        self.q_optimizer.zero_grad()
+        q_loss.backward()
+        self.q_optimizer.step()
+
+        # Update target Q network
+        soft_update(self.q_target, self.qf, self.tau)
+
+    def _update_policy(
+        self,
+        adv: torch.Tensor,
+        observations: torch.Tensor,
+        actions: torch.Tensor,
+        log_dict: Dict,
+    ):
+        exp_adv = torch.exp(self.beta * adv.detach()).clamp(max=EXP_ADV_MAX)
+        policy_out = self.actor(observations)
+        if isinstance(policy_out, torch.distributions.Distribution):
+            bc_losses = -policy_out.log_prob(actions).sum(-1, keepdim=False)
+        elif torch.is_tensor(policy_out):
+            if policy_out.shape != actions.shape:
+                raise RuntimeError("Actions shape missmatch")
+            bc_losses = torch.sum((policy_out - actions) ** 2, dim=1)
+        else:
+            raise NotImplementedError
+        policy_loss = torch.mean(exp_adv * bc_losses)
+        log_dict["actor_loss"] = policy_loss.item()
+        self.actor_optimizer.zero_grad()
+        policy_loss.backward()
+        self.actor_optimizer.step()
+        if self.actor_lr_schedule is not None:
+            self.actor_lr_schedule.step()
+
+    def _update_alpha(batch):
+        loss = agent_type + 
+
+    def train(self, batch: TensorBatch) -> Dict[str, float]:
+        self.total_it += 1
+        (
+            observations,
+            actions,
+            rewards,
+            next_observations,
+            dones,
+        ) = batch
+        log_dict = {}
+
+        with torch.no_grad():
+            next_v = self.vf(next_observations)
+        # Update value function
+        adv = self._update_v(observations, actions, log_dict)
+        rewards = rewards.squeeze(dim=-1)
+        dones = dones.squeeze(dim=-1)
+        # Update Q function
+        self._update_q(next_v, observations, actions, rewards, dones, log_dict)
+        # Update actor
+        self._update_policy(adv, observations, actions, log_dict)
+
+        log_dict = super().train(batch)
+        if self.alpha_network is not None:
+            self._update_alpha(adv, observations, actions, log_dict)
+        
+        return log_dict
+
+    def state_dict(self) -> Dict[str, Any]:
+        if self.actor_lr_schedule is None:
+            lr_state_dict = {}
+        else:
+            lr_state_dict = self.actor_lr_schedule.state_dict()
+        return {
+            "qf": self.qf.state_dict(),
+            "q_optimizer": self.q_optimizer.state_dict(),
+            "vf": self.vf.state_dict(),
+            "v_optimizer": self.v_optimizer.state_dict(),
+            "actor": self.actor.state_dict(),
+            "actor_optimizer": self.actor_optimizer.state_dict(),
+            "actor_lr_schedule": lr_state_dict,
+            "total_it": self.total_it,
+        }
+
+    def load_state_dict(self, state_dict: Dict[str, Any]):
+        self.qf.load_state_dict(state_dict["qf"])
+        self.q_optimizer.load_state_dict(state_dict["q_optimizer"])
+        self.q_target = copy.deepcopy(self.qf)
+
+        self.vf.load_state_dict(state_dict["vf"])
+        self.v_optimizer.load_state_dict(state_dict["v_optimizer"])
+
+        self.actor.load_state_dict(state_dict["actor"])
+        self.actor_optimizer.load_state_dict(state_dict["actor_optimizer"])
+        if self.actor_lr_schedule is not None:
+            self.actor_lr_schedule.load_state_dict(state_dict["actor_lr_schedule"])
+
+        self.total_it = state_dict["total_it"]
+
+    def partial_load_state_dict(self, state_dict: Dict[str, Any]):
+        """Load state dict, but don't load optimisers."""
+        self.qf.load_state_dict(state_dict["qf"])
+        self.q_target = copy.deepcopy(self.qf)
+
+        self.vf.load_state_dict(state_dict["vf"])
+
+        self.actor.load_state_dict(state_dict["actor"])
+        if self.actor_lr_schedule is not None:
+            self.actor_lr_schedule.load_state_dict(state_dict["actor_lr_schedule"])
+
+        self.total_it = state_dict["total_it"]
 
 def add_grbrl_metrics(eval_log, config):
     """
@@ -169,9 +317,13 @@ def prepare_finetuning(init_horizon, mean_return, config):
         guide_sample = config.sample_rate
         learner_sample = (1-config.correct_learner_action)
         config.learner_frac = 1-(((config.tolerance)**(1/H)*guide_sample-(1-learner_sample))/(guide_sample-(1-learner_sample)))
-    config.agent_type_stage = config.learner_frac
+    if config.adaptive_alpha:
+        config.agent_type_stage = 1
+    else:
+        config.agent_type_stage = config.learner_frac
     config.best_eval_score = {}
-    config.best_eval_score[0] = -init_horizon
+    config.best_eval_score[0] = mean_return
+    
     config.rolled_back = False
     return config
 
@@ -265,6 +417,12 @@ def make_actor(config, state_dim, action_dim, max_action, device=None, max_steps
     v_optimizer = torch.optim.Adam(v_network.parameters(), lr=config.vf_lr)
     q_optimizer = torch.optim.Adam(q_network.parameters(), lr=config.qf_lr)
     actor_optimizer = torch.optim.Adam(actor.parameters(), lr=config.actor_lr)
+    if config.adaptive_alpha:
+        alpha_network = MLP(state_dim).to(device)
+        alpha_optimizer = torch.optim.Adam(alpha_network.parameters(), lr=config.actor_lr)
+    else:
+        alpha_network = None
+        alpha_optimizer = None
     kwargs = {
         "max_action": max_action,
         "actor": actor,
@@ -273,6 +431,8 @@ def make_actor(config, state_dim, action_dim, max_action, device=None, max_steps
         "q_optimizer": q_optimizer,
         "v_network": v_network,
         "v_optimizer": v_optimizer,
+        "alpha_network": alpha_network,
+        "alpha_optimizer": alpha_optimizer,
         "discount": config.discount,
         "tau": config.tau,
         "device": device,
@@ -281,7 +441,7 @@ def make_actor(config, state_dim, action_dim, max_action, device=None, max_steps
         "iql_tau": config.iql_tau,
         "max_steps": max_steps,
     }
-    return ImplicitQLearning(**kwargs)
+    return GRBRL(**kwargs)
 
 def get_guide_agent(config, trainer, state_dim, action_dim, max_action):
     """
@@ -355,8 +515,10 @@ def get_learning_agent(config, guide_trainer, init_horizon, mean_return, state_d
         state_dict = guide_trainer.state_dict()
         trainer.partial_load_state_dict(state_dict)
     trainer.total_it = config.offline_iterations # iterations done so far
-    config = prepare_finetuning(init_horizon, mean_return, config)
-    return trainer, config
+    config, alpha_network = prepare_finetuning(init_horizon, mean_return, config)
+    if alpha_network is not None:
+        alpha_optimizer = torch.optim.Adam(alpha_network.parameters(), lr=config.actor_lr)
+    return trainer, config, alpha_network, alpha_optimizer
 
 def variance_horizon(_, s, _e, config):
     """
