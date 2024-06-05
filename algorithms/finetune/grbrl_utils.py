@@ -171,7 +171,7 @@ def prepare_finetuning(init_horizon, mean_return, config):
         config.learner_frac = 1-(((config.tolerance)**(1/H)*guide_sample-(1-learner_sample))/(guide_sample-(1-learner_sample)))
     config.agent_type_stage = config.learner_frac
     config.best_eval_score = {}
-    config.best_eval_score[0] = -init_horizon
+    config.best_eval_score[0] = mean_return
     config.rolled_back = False
     return config
 
