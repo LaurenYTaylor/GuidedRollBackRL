@@ -559,11 +559,13 @@ def learner_or_guide_action(state, step, env, learner, guide, alpha, config, dev
         horizon = step
         use_learner = True
     else:
-        if alpha is not None:
+        if config.add_alpha_dim:
+            alpha_val = alpha
+        elif alpha is not None:
             new_alpha = alpha(torch.Tensor(state))
             config.agent_type_stage = new_alpha
             print("New alpha: ", config.agent_type_stage)
-        alpha_val = new_alpha.detach().numpy()[0]
+            alpha_val = new_alpha.detach().numpy()[0]
         if ((np.random.random() <= alpha_val) and 
             (config.ep_agent_type <= alpha_val)):
             use_learner = True

@@ -58,6 +58,7 @@ class GrbrlTrainConfig(TrainConfig):
     sample_rate: float = 1.0  # how often the guide action is set to non-optimal
     correct_learner_action: float = 0.0  # how often the learner action if set to optimal (combo lock only)
     adaptive_alpha: bool = True
+    add_alpha_dim: bool = True
     env_config: dict = field(default_factory=lambda: {})  # Environment configuration parameters
     downloaded_dataset: str = None  # Path to downloaded dataset, if any (pre-downloading the dataset is faster)
     pretrained_policy_path: str = None  # Path to pretrained policy file, if any
@@ -208,6 +209,8 @@ def grbrl_online_actor(config, env, actor, trainer, max_steps):
     all_returns, _, init_horizon, _ = eval_actor(env, guide, None, None, config)
     mean_return = np.mean(all_returns)
     env_info["max_steps"] = max_steps
+    if config.add_alpha_dim:
+        env_info["action_dim"] = env_info["action_dim"]+1
     trainer, config = grbrl.get_learning_agent(config, guide_trainer, init_horizon, mean_return, **env_info)
     return trainer, guide, config
 
@@ -381,6 +384,8 @@ def train(config: GrbrlTrainConfig):
     if config.pretrained_policy_path is not None:
         config.offline_iterations = 0
 
+    alpha = 1
+
     print("Offline pretraining")
     for t in range(int(config.offline_iterations) + int(config.online_iterations)):
         if t == config.offline_iterations:
@@ -403,16 +408,21 @@ def train(config: GrbrlTrainConfig):
 
             episode_step += 1
 
+            if not config.add_alpha_dim:
+                alpha = trainer.alpha_network
+
             action, use_learner, _ = grbrl.learner_or_guide_action(
                 state,
                 episode_step,
                 env,
                 actor,
                 guide,
-                trainer.alpha_network,
+                alpha,
                 config,
                 config.device,
             )
+            
+            
                 
             if use_learner:
                 episode_agent_types.append(1)
@@ -425,11 +435,21 @@ def train(config: GrbrlTrainConfig):
                     action += noise
             else:
                 episode_agent_types.append(0)
-            
-
+            print(use_learner)
+            print(action)
+            if use_learner:
+                try:
+                    if config.add_alpha_dim:
+                        alpha = action[0][-1]
+                        action = action[0][:-1]
+                except IndexError:
+                    if config.add_alpha_dim:
+                        alpha = action[-1]
+                        action = action[:-1]
+                
             action = torch.clamp(max_action * action, -max_action, max_action)
             action = action.cpu().data.numpy().flatten()
-
+     
             next_state, reward, done, env_infos = env.step(action)
 
             if not goal_achieved:
@@ -442,6 +462,11 @@ def train(config: GrbrlTrainConfig):
 
             if config.normalize_reward:
                 reward = modify_reward_online(reward, config.env, **reward_mod_dict)
+
+            if not config.adaptive_alpha:
+                config.agent_type_stage = alpha
+                if config.add_alpha_dim and use_learner:
+                    action = torch.concat((action, alpha))
 
             online_replay_buffer.add_transition(
                 state, action, reward, next_state, real_done, config.agent_type_stage
