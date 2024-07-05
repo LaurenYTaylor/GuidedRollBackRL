@@ -58,8 +58,8 @@ class TrainConfig:
     qf_lr: float = 3e-4  # Critic learning rate
     actor_lr: float = 3e-4  # Actor learning rate
     # Wandb logging
-    project: str = "jsrl-CORL-neurips"
-    group: str = "IQL-Combo-Basics"
+    project: str = "jsrl"
+    group: str = "IQL"
     name: str = "IQL"
 
     def __post_init__(self):
@@ -573,19 +573,6 @@ class ImplicitQLearning:
 
         self.actor.load_state_dict(state_dict["actor"])
         self.actor_optimizer.load_state_dict(state_dict["actor_optimizer"])
-        if self.actor_lr_schedule is not None:
-            self.actor_lr_schedule.load_state_dict(state_dict["actor_lr_schedule"])
-
-        self.total_it = state_dict["total_it"]
-
-    def partial_load_state_dict(self, state_dict: Dict[str, Any]):
-        """Load state dict, but don't load optimisers."""
-        self.qf.load_state_dict(state_dict["qf"])
-        self.q_target = copy.deepcopy(self.qf)
-
-        self.vf.load_state_dict(state_dict["vf"])
-
-        self.actor.load_state_dict(state_dict["actor"])
         if self.actor_lr_schedule is not None:
             self.actor_lr_schedule.load_state_dict(state_dict["actor_lr_schedule"])
 

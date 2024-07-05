@@ -8,170 +8,20 @@
 ####################################################################################################
 import torch
 import numpy as np
-from collections import deque
 from pathlib import PosixPath, Path
 from goal_horizon_fns import goal_dist_calc
-from torch import nn
 import guide_heuristics
 from variance_learner import StateDepFunction, VarianceLearner
 from iql import (
     DeterministicPolicy,
     GaussianPolicy,
-    ImplicitQLearning,
     TwinQ,
-    ValueFunction,
-    MLP
+    ValueFunction
 )
+from grbrl_cls_utils import GRBRL, AlphaNetwork
 
 horizon_str = ""  # this is set in grbrl_w_iql.py
 
-
-class GRBRL(ImplicitQLearning):
-    def __init__(
-        self,
-        *args,
-        **kwargs
-    ):
-        self.alpha_network = kwargs["alpha_network"]
-        self.alpha_optimizer = kwargs["alpha_optimizer"]
-        del kwargs, "alpha_network"
-        del kwargs, "alpha_optimizer"
-        super().__init__(*args, **kwargs)
-
-    def _update_v(self, observations, actions, log_dict) -> torch.Tensor:
-        # Update value function
-        with torch.no_grad():
-            target_q = self.q_target(observations, actions)
-        
-        v = self.vf(observations)
-
-        adv = target_q - v
-        v_loss = asymmetric_l2_loss(adv, self.iql_tau)
-        log_dict["value_loss"] = v_loss.item()
-        self.v_optimizer.zero_grad()
-        v_loss.backward()
-        self.v_optimizer.step()
-        return adv
-
-    def _update_q(
-        self,
-        next_v: torch.Tensor,
-        observations: torch.Tensor,
-        actions: torch.Tensor,
-        rewards: torch.Tensor,
-        terminals: torch.Tensor,
-        log_dict: Dict,
-    ):
-        targets = rewards + (1.0 - terminals.float()) * self.discount * next_v.detach()
-        qs = self.qf.both(observations, actions)
-        q_loss = sum(F.mse_loss(q, targets) for q in qs) / len(qs)
-        log_dict["q_loss"] = q_loss.item()
-        self.q_optimizer.zero_grad()
-        q_loss.backward()
-        self.q_optimizer.step()
-
-        # Update target Q network
-        soft_update(self.q_target, self.qf, self.tau)
-
-    def _update_policy(
-        self,
-        adv: torch.Tensor,
-        observations: torch.Tensor,
-        actions: torch.Tensor,
-        log_dict: Dict,
-    ):
-        exp_adv = torch.exp(self.beta * adv.detach()).clamp(max=EXP_ADV_MAX)
-        policy_out = self.actor(observations)
-        if isinstance(policy_out, torch.distributions.Distribution):
-            bc_losses = -policy_out.log_prob(actions).sum(-1, keepdim=False)
-        elif torch.is_tensor(policy_out):
-            if policy_out.shape != actions.shape:
-                raise RuntimeError("Actions shape missmatch")
-            bc_losses = torch.sum((policy_out - actions) ** 2, dim=1)
-        else:
-            raise NotImplementedError
-        policy_loss = torch.mean(exp_adv * bc_losses)
-        log_dict["actor_loss"] = policy_loss.item()
-        self.actor_optimizer.zero_grad()
-        policy_loss.backward()
-        self.actor_optimizer.step()
-        if self.actor_lr_schedule is not None:
-            self.actor_lr_schedule.step()
-
-    def _update_alpha(batch):
-        loss = agent_type + 
-
-    def train(self, batch: TensorBatch) -> Dict[str, float]:
-        self.total_it += 1
-        (
-            observations,
-            actions,
-            rewards,
-            next_observations,
-            dones,
-        ) = batch
-        log_dict = {}
-
-        with torch.no_grad():
-            next_v = self.vf(next_observations)
-        # Update value function
-        adv = self._update_v(observations, actions, log_dict)
-        rewards = rewards.squeeze(dim=-1)
-        dones = dones.squeeze(dim=-1)
-        # Update Q function
-        self._update_q(next_v, observations, actions, rewards, dones, log_dict)
-        # Update actor
-        self._update_policy(adv, observations, actions, log_dict)
-
-        log_dict = super().train(batch)
-        if self.alpha_network is not None:
-            self._update_alpha(adv, observations, actions, log_dict)
-        
-        return log_dict
-
-    def state_dict(self) -> Dict[str, Any]:
-        if self.actor_lr_schedule is None:
-            lr_state_dict = {}
-        else:
-            lr_state_dict = self.actor_lr_schedule.state_dict()
-        return {
-            "qf": self.qf.state_dict(),
-            "q_optimizer": self.q_optimizer.state_dict(),
-            "vf": self.vf.state_dict(),
-            "v_optimizer": self.v_optimizer.state_dict(),
-            "actor": self.actor.state_dict(),
-            "actor_optimizer": self.actor_optimizer.state_dict(),
-            "actor_lr_schedule": lr_state_dict,
-            "total_it": self.total_it,
-        }
-
-    def load_state_dict(self, state_dict: Dict[str, Any]):
-        self.qf.load_state_dict(state_dict["qf"])
-        self.q_optimizer.load_state_dict(state_dict["q_optimizer"])
-        self.q_target = copy.deepcopy(self.qf)
-
-        self.vf.load_state_dict(state_dict["vf"])
-        self.v_optimizer.load_state_dict(state_dict["v_optimizer"])
-
-        self.actor.load_state_dict(state_dict["actor"])
-        self.actor_optimizer.load_state_dict(state_dict["actor_optimizer"])
-        if self.actor_lr_schedule is not None:
-            self.actor_lr_schedule.load_state_dict(state_dict["actor_lr_schedule"])
-
-        self.total_it = state_dict["total_it"]
-
-    def partial_load_state_dict(self, state_dict: Dict[str, Any]):
-        """Load state dict, but don't load optimisers."""
-        self.qf.load_state_dict(state_dict["qf"])
-        self.q_target = copy.deepcopy(self.qf)
-
-        self.vf.load_state_dict(state_dict["vf"])
-
-        self.actor.load_state_dict(state_dict["actor"])
-        if self.actor_lr_schedule is not None:
-            self.actor_lr_schedule.load_state_dict(state_dict["actor_lr_schedule"])
-
-        self.total_it = state_dict["total_it"]
 
 def add_grbrl_metrics(eval_log, config):
     """
@@ -227,11 +77,6 @@ def horizon_update_callback(config, eval_reward, N):
     if config.agent_type_stage in config.best_eval_score:
         prev_best = config.best_eval_score[config.agent_type_stage]
     
-    if config.best_eval_score[0] < 0:
-        score_with_tolerance = -N+config.tolerance*(config.best_eval_score[0]+N)
-    else:
-        score_with_tolerance = config.tolerance*config.best_eval_score[0]
-    
     if (
         eval_reward >= config.best_eval_score[0]
     ):
@@ -239,9 +84,9 @@ def horizon_update_callback(config, eval_reward, N):
         if config.rolled_back:
             config.agent_type_stage = max(list(config.best_eval_score.keys()))
             config.rolled_back = False
-        else:
+        elif not config.adaptive_alpha:
             config.agent_type_stage = min(1.0, config.agent_type_stage+config.learner_frac)
-    elif config.enable_rollback and (eval_reward < score_with_tolerance):
+    elif config.enable_rollback and (eval_reward < config.score_with_tolerance):
         config.best_eval_score[config.agent_type_stage] = eval_reward
         if config.agent_type_stage != min(list(config.best_eval_score.keys())):
             best_prevs = sorted(config.best_eval_score.items(), key=lambda x: x[1])[-1]
@@ -250,7 +95,7 @@ def horizon_update_callback(config, eval_reward, N):
                 best_prev = best_prevs[1]
             config.agent_type_stage = best_prev
             config.rolled_back = True
-    print(f"{config.seed}: {score_with_tolerance}/{eval_reward}: curr best: {prev_best}, eval rew: {eval_reward}, new agent type: {config.agent_type_stage}")
+    print(f"{config.seed}: {config.score_with_tolerance}/{eval_reward}: curr best: {prev_best}, eval rew: {eval_reward}, new agent type: {config.agent_type_stage}")
     return config
 
 
@@ -317,9 +162,7 @@ def prepare_finetuning(init_horizon, mean_return, config):
         guide_sample = config.sample_rate
         learner_sample = (1-config.correct_learner_action)
         config.learner_frac = 1-(((config.tolerance)**(1/H)*guide_sample-(1-learner_sample))/(guide_sample-(1-learner_sample)))
-    if config.adaptive_alpha:
-        config.agent_type_stage = 1
-    else:
+    if not config.adaptive_alpha:
         config.agent_type_stage = config.learner_frac
     config.best_eval_score = {}
     config.best_eval_score[0] = mean_return
@@ -398,8 +241,8 @@ def make_actor(config, state_dim, action_dim, max_action, device=None, max_steps
 
     Returns
     -------
-    ImplicitQLearning
-        An instance of the ImplicitQLearning class configured based on the provided parameters.
+    GRBRL
+        An instance of the GRBRL class configured based on the provided parameters.
     """
     if device is None:
         device = config.device
@@ -418,7 +261,7 @@ def make_actor(config, state_dim, action_dim, max_action, device=None, max_steps
     q_optimizer = torch.optim.Adam(q_network.parameters(), lr=config.qf_lr)
     actor_optimizer = torch.optim.Adam(actor.parameters(), lr=config.actor_lr)
     if config.adaptive_alpha:
-        alpha_network = MLP(state_dim).to(device)
+        alpha_network = AlphaNetwork(state_dim).to(device)
         alpha_optimizer = torch.optim.Adam(alpha_network.parameters(), lr=config.actor_lr)
     else:
         alpha_network = None
@@ -485,7 +328,7 @@ def get_guide_agent(config, trainer, state_dim, action_dim, max_action):
         guide.eval()
     return guide, guide_trainer
 
-def get_learning_agent(config, guide_trainer, init_horizon, mean_return, state_dim, action_dim, max_action):
+def get_learning_agent(config, guide_trainer, init_horizon, mean_return, state_dim, action_dim, max_action, max_steps):
     """
     Create a learning agent for online fine-tuning based on the provided configuration.
 
@@ -503,6 +346,8 @@ def get_learning_agent(config, guide_trainer, init_horizon, mean_return, state_d
         The dimensionality of the action space.
     max_action : float
         The maximum value of the action space.
+    max_steps : int
+        Max steps in the environment.
 
     Returns
     -------
@@ -515,10 +360,12 @@ def get_learning_agent(config, guide_trainer, init_horizon, mean_return, state_d
         state_dict = guide_trainer.state_dict()
         trainer.partial_load_state_dict(state_dict)
     trainer.total_it = config.offline_iterations # iterations done so far
-    config, alpha_network = prepare_finetuning(init_horizon, mean_return, config)
-    if alpha_network is not None:
-        alpha_optimizer = torch.optim.Adam(alpha_network.parameters(), lr=config.actor_lr)
-    return trainer, config, alpha_network, alpha_optimizer
+    config = prepare_finetuning(init_horizon, mean_return, config)
+    if config.best_eval_score[0] < 0:
+        config.score_with_tolerance = -max_steps+config.tolerance*(config.best_eval_score[0]+max_steps)
+    else:
+        config.score_with_tolerance = config.tolerance*config.best_eval_score[0]
+    return trainer, config
 
 def variance_horizon(_, s, _e, config):
     """
@@ -675,7 +522,7 @@ def accumulate(vals):
     return HORIZON_FNS[horizon_str]["accumulator_fn"](vals)
 
 
-def learner_or_guide_action(state, step, env, learner, guide, config, device, eval=False):
+def learner_or_guide_action(state, step, env, learner, guide, alpha, config, device, eval=False):
     """
     Determine whether to use the learner or guide policy to choose an action.
     It calculates the horizon and decides whether to use the learner based on the
@@ -712,8 +559,13 @@ def learner_or_guide_action(state, step, env, learner, guide, config, device, ev
         horizon = step
         use_learner = True
     else:
-        if ((np.random.random() <= config.agent_type_stage) and 
-            (config.ep_agent_type <= config.agent_type_stage)):
+        if alpha is not None:
+            new_alpha = alpha(torch.Tensor(state))
+            config.agent_type_stage = new_alpha
+            print("New alpha: ", config.agent_type_stage)
+        alpha_val = new_alpha.detach().numpy()[0]
+        if ((np.random.random() <= alpha_val) and 
+            (config.ep_agent_type <= alpha_val)):
             use_learner = True
         else:
             use_learner = False
@@ -731,6 +583,7 @@ def learner_or_guide_action(state, step, env, learner, guide, config, device, ev
                 action = learner(
                     torch.tensor(state.reshape(1, -1), device=device, dtype=torch.float32)
                 )
+               
     else:
         if not isinstance(guide, GaussianPolicy):
             action = guide(env, state, config.sample_rate)

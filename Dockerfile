@@ -45,7 +45,13 @@ RUN pypatch apply lunarlander-seed.patch gymnasium
 
 RUN mkdir checkpoints
 RUN mkdir wandb
-RUN mkdir jsrl-CORL
+RUN mkdir GuidedRollBackRL
 RUN pip install --upgrade pip
 RUN pip install -i https://test.pypi.org/simple/ combination-lock==0.0.8
+RUN pip install torchviz
+
+RUN add-apt-repository universe
+RUN apt update
+RUN apt-get install -y graphviz 
+
 

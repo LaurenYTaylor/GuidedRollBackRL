@@ -18,7 +18,6 @@ import combination_lock
 import numpy as np
 import pyrallis
 import torch
-import torch.nn.functional as F
 import wandb
 import h5py
 from gymnasium.wrappers import StepAPICompatibility
@@ -26,7 +25,6 @@ from gymnasium.wrappers import StepAPICompatibility
 from iql import (
     ENVS_WITH_GOAL,
     GaussianPolicy,
-    ReplayBuffer,
     TrainConfig,
     Tuple,
     compute_mean_std,
@@ -40,7 +38,8 @@ from iql import (
     wandb_init,
     wrap_env,
 )
-import algorithms.finetune.grbrl_utils as grbrl
+import grbrl_utils as grbrl
+import grbrl_cls_utils as grbrl_cls
 import guide_heuristics as guide_heuristics
 
 
@@ -58,6 +57,7 @@ class GrbrlTrainConfig(TrainConfig):
     enable_rollback: bool = True  # Set True for GRBRL, or False for SSRL
     sample_rate: float = 1.0  # how often the guide action is set to non-optimal
     correct_learner_action: float = 0.0  # how often the learner action if set to optimal (combo lock only)
+    adaptive_alpha: bool = True
     env_config: dict = field(default_factory=lambda: {})  # Environment configuration parameters
     downloaded_dataset: str = None  # Path to downloaded dataset, if any (pre-downloading the dataset is faster)
     pretrained_policy_path: str = None  # Path to pretrained policy file, if any
@@ -68,6 +68,7 @@ def eval_actor(
     env: gym.Env,
     learner: nn.Module,
     guide: nn.Module,
+    alpha: nn.Module,
     config: GrbrlTrainConfig,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
@@ -129,7 +130,7 @@ def eval_actor(
             else:
                 config.ep_agent_type = np.mean(ep_agent_types)
             action, use_learner, horizon = grbrl.learner_or_guide_action(
-                state, ts, env, learner, guide, config, config.device, eval=True
+                state, ts, env, learner, guide, alpha, config, config.device, eval=True
             )
             episode_horizons.append(horizon)
             if use_learner:
@@ -204,8 +205,9 @@ def grbrl_online_actor(config, env, actor, trainer, max_steps):
     guide, guide_trainer = grbrl.get_guide_agent(config, trainer, **env_info)
     if config.horizon_fn == "variance":
         config = grbrl.get_var_predictor(env, config, max_steps, guide)
-    all_returns, _, init_horizon, _ = eval_actor(env, guide, None, config)
+    all_returns, _, init_horizon, _ = eval_actor(env, guide, None, None, config)
     mean_return = np.mean(all_returns)
+    env_info["max_steps"] = max_steps
     trainer, config = grbrl.get_learning_agent(config, guide_trainer, init_horizon, mean_return, **env_info)
     return trainer, guide, config
 
@@ -232,7 +234,7 @@ def get_online_buffer(config, replay_buffer, state_dim, action_dim):
     if config.new_online_buffer:
         if replay_buffer is not None:
             del replay_buffer
-        online_replay_buffer = ReplayBuffer(
+        online_replay_buffer = grbrl_cls.ExtendedReplayBuffer(
             state_dim,
             action_dim,
             config.online_buffer_size,
@@ -314,7 +316,7 @@ def train(config: GrbrlTrainConfig):
 
         env = wrap_env(env, state_mean=state_mean, state_std=state_std)
         eval_env = wrap_env(eval_env, state_mean=state_mean, state_std=state_std)
-        replay_buffer = ReplayBuffer(
+        replay_buffer = grbrl_cls.ExtendedReplayBuffer(
             state_dim,
             action_dim,
             config.buffer_size,
@@ -407,6 +409,7 @@ def train(config: GrbrlTrainConfig):
                 env,
                 actor,
                 guide,
+                trainer.alpha_network,
                 config,
                 config.device,
             )
@@ -441,7 +444,7 @@ def train(config: GrbrlTrainConfig):
                 reward = modify_reward_online(reward, config.env, **reward_mod_dict)
 
             online_replay_buffer.add_transition(
-                state, action, reward, next_state, real_done
+                state, action, reward, next_state, real_done, config.agent_type_stage
             )
             state = next_state
             if done:
@@ -498,7 +501,7 @@ def train(config: GrbrlTrainConfig):
                     success_rate,
                     config.mean_horizon_reached,
                     config.eval_mean_agent_type,
-                ) = eval_actor(eval_env, actor, guide, config)
+                ) = eval_actor(eval_env, actor, guide, trainer.alpha_network, config)
 
                 eval_score = eval_scores.mean()
                 eval_log = {}
