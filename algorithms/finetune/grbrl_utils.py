@@ -71,16 +71,12 @@ def horizon_update_callback(config, eval_reward, N):
     GrbrlTrainConfig
         The updated configuration parameters after horizon update.
     """
-    prev_best = -np.inf
     eval_reward = -config.mean_horizon_reached
-    
-    if config.agent_type_stage in config.best_eval_score:
-        prev_best = config.best_eval_score[config.agent_type_stage]
     
     if (
         eval_reward >= config.best_eval_score[0]
     ):
-        config.best_eval_score[config.agent_type_stage] = eval_reward
+        config.best_eval_score[tuple(config.agent_type_stage)] = eval_reward
         if config.rolled_back:
             config.agent_type_stage = max(list(config.best_eval_score.keys()))
             config.rolled_back = False
@@ -95,7 +91,7 @@ def horizon_update_callback(config, eval_reward, N):
                 best_prev = best_prevs[1]
             config.agent_type_stage = best_prev
             config.rolled_back = True
-    print(f"{config.seed}: {config.score_with_tolerance}/{eval_reward}: curr best: {prev_best}, eval rew: {eval_reward}, new agent type: {config.agent_type_stage}")
+    print(f"{config.seed}: {config.score_with_tolerance}/{eval_reward}, eval rew: {eval_reward}, new agent type: {config.agent_type_stage}")
     return config
 
 
@@ -522,7 +518,7 @@ def accumulate(vals):
     return HORIZON_FNS[horizon_str]["accumulator_fn"](vals)
 
 
-def learner_or_guide_action(state, step, env, learner, guide, alpha, config, device, eval=False):
+def learner_or_guide_action(state, step, env, learner, guide, config, device, eval=False):
     """
     Determine whether to use the learner or guide policy to choose an action.
     It calculates the horizon and decides whether to use the learner based on the
@@ -555,42 +551,66 @@ def learner_or_guide_action(state, step, env, learner, guide, alpha, config, dev
         A tuple containing the chosen action, a boolean indicating whether the learner is used,
         and the calculated horizon.
     """
+
+    # other than the actual learner, this may also be the training guide policy,
+    # or the guide being evaluated before online training sta
+    
+    if not (isinstance(learner, GaussianPolicy) or isinstance(learner, DeterministicPolicy)):
+        learner_action = learner(env, state, config.sample_rate)
+    else:
+        if eval:
+            learner_action = learner.act(state, device)
+        else:
+            learner_action = learner(
+                torch.tensor(state.reshape(1, -1), device=device, dtype=torch.float32)
+            )
+    if guide is not None:
+        if not eval:
+            if not config.iql_deterministic:
+                learner_action = learner_action.sample()
+            else:
+                noise = (torch.randn_like(learner_action) * config.expl_noise).clamp(
+                -config.noise_clip, config.noise_clip
+            )
+                learner_action += noise
+        if not eval:
+            alpha = learner_action[0][-1]
+            learner_action = learner_action[0][:-1]
+            alpha = torch.sigmoid(alpha)
+            alpha = torch.unsqueeze(alpha + alpha.round().detach() - alpha.detach(), dim=-1)
+        else:
+            alpha = learner_action[-1]
+            learner_action = learner_action[:-1]
+            alpha = np.expand_dims(alpha, axis=0)
+            alpha = torch.sigmoid(torch.Tensor(alpha)).round()   
+        alpha = torch.max(torch.tensor([0, alpha-1]))
+    else:
+        alpha = np.array([0])
+    config.agent_type_stage = alpha
+    horizon = step
+    '''
     if guide is None:
         horizon = step
         use_learner = True
     else:
-        if config.add_alpha_dim:
-            alpha_val = alpha
-        elif alpha is not None:
-            new_alpha = alpha(torch.Tensor(state))
-            config.agent_type_stage = new_alpha
-            print("New alpha: ", config.agent_type_stage)
-            alpha_val = new_alpha.detach().numpy()[0]
-        if ((np.random.random() <= alpha_val) and 
-            (config.ep_agent_type <= alpha_val)):
+        if ((np.random.random() <= config.agent_type_stage) and 
+            (config.ep_agent_type <= config.agent_type_stage)):
             use_learner = True
         else:
             use_learner = False
-        horizon = step
-
-    if use_learner:
-        # other than the actual learner, this may also be the training guide policy,
-        # or the guide being evaluated before online training starts
-        if not (isinstance(learner, GaussianPolicy) or isinstance(learner, DeterministicPolicy)):
-            action = learner(env, state, config.sample_rate)
-        else:
-            if eval:
-                action = learner.act(state, device)
-            else:
-                action = learner(
-                    torch.tensor(state.reshape(1, -1), device=device, dtype=torch.float32)
-                )
-               
-    else:
+        horizon = step 
+    '''
+    if guide is not None:   
         if not isinstance(guide, GaussianPolicy):
-            action = guide(env, state, config.sample_rate)
+            guide_action = guide(env, state, config.sample_rate)
         else:
-            action = guide.act(state, device)
+            guide_action = guide.act(state, device)
         if not eval:
-             action = torch.tensor(action)
-    return action, use_learner, horizon
+            guide_action = torch.tensor(guide_action)
+        final_action = alpha*learner_action+(1-alpha)*guide_action
+        if eval:
+            #import pdb;pdb.set_trace()
+            final_action = np.array(final_action.tolist())
+    else:
+        final_action = learner_action
+    return final_action, alpha, horizon

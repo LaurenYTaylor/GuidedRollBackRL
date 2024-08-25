@@ -79,7 +79,7 @@ build_and_run_antmaze:
 	-v ./algorithms/finetune/wandb:/workspace/wandb \
 	-v ./algorithms/finetune:/workspace/GuidedRollBackRL/algorithms/finetune \
 	-v ".:/workspace/GuidedRollBackRL" \
-	grbrl-corl python $(RUN_FILE) --project AdaptiveAlphaAddDim --adaptive_alpha False --add_alpha_dim True --horizon_fn time_step --checkpoints_path checkpoints --normalize True --tolerance 0.95 --normalize_reward True --iql_deterministic False --beta 10 --learner_frac 0.2 --correct_learner_action 0.9 --iql_tau 0.9 --eval_freq 1000 --n_episodes 1 --offline_iterations 0 --online_iterations 1000000 --pretrained_policy_path GuidedRollBackRL/algorithms/finetune/checkpoints/IQL-antmaze-umaze-diverse-v2-offline/checkpoint_999999.pt --env antmaze-umaze-diverse-v2 --device cpu --enable_rollback False ;
+	grbrl-corl python $(RUN_FILE) --project AdaptiveAlphaAddDim --adaptive_alpha False --add_alpha_dim True --horizon_fn time_step --checkpoints_path checkpoints --normalize True --tolerance 0.95 --normalize_reward True --iql_deterministic False --beta 10 --learner_frac 0.2 --correct_learner_action 0.9 --iql_tau 0.9 --eval_freq 1000 --n_episodes 100 --offline_iterations 0 --online_iterations 1000000 --pretrained_policy_path GuidedRollBackRL/algorithms/finetune/checkpoints/IQL-antmaze-umaze-diverse-v2-offline/checkpoint_999999.pt --env antmaze-umaze-diverse-v2 --device cpu --enable_rollback False ;
 
 
 run_variance_learner:

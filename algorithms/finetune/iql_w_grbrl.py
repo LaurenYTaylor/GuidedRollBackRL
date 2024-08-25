@@ -69,7 +69,6 @@ def eval_actor(
     env: gym.Env,
     learner: nn.Module,
     guide: nn.Module,
-    alpha: nn.Module,
     config: GrbrlTrainConfig,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
@@ -129,16 +128,20 @@ def eval_actor(
             if ts == 0:
                 config.ep_agent_type = 0
             else:
-                config.ep_agent_type = np.mean(ep_agent_types)
+                try:
+                    config.ep_agent_type = np.mean(ep_agent_types)
+                except AttributeError:
+                    import pdb;pdb.set_trace()
             action, use_learner, horizon = grbrl.learner_or_guide_action(
-                state, ts, env, learner, guide, alpha, config, config.device, eval=True
+                state, ts, env, learner, guide, config, config.device, eval=True
             )
             episode_horizons.append(horizon)
-            if use_learner:
-                ep_agent_types.append(1)
-            else:
-                ep_agent_types.append(0)
-            state, reward, done, env_infos = env.step(action)
+            ep_agent_types.append(use_learner.item())
+            
+            try:
+                state, reward, done, env_infos = env.step(action)
+            except TypeError:
+                import pdb;pdb.set_trace()
             episode_reward += reward
             ts += 1
             if not goal_achieved:
@@ -206,7 +209,7 @@ def grbrl_online_actor(config, env, actor, trainer, max_steps):
     guide, guide_trainer = grbrl.get_guide_agent(config, trainer, **env_info)
     if config.horizon_fn == "variance":
         config = grbrl.get_var_predictor(env, config, max_steps, guide)
-    all_returns, _, init_horizon, _ = eval_actor(env, guide, None, None, config)
+    all_returns, _, init_horizon, _ = eval_actor(env, guide, None, config)
     mean_return = np.mean(all_returns)
     env_info["max_steps"] = max_steps
     if config.add_alpha_dim:
@@ -234,10 +237,12 @@ def get_online_buffer(config, replay_buffer, state_dim, action_dim):
     online_replay_buffer : ReplayBuffer
         The initialized or reused online replay buffer.
     """
+    if config.add_alpha_dim:
+        action_dim+=1
     if config.new_online_buffer:
         if replay_buffer is not None:
             del replay_buffer
-        online_replay_buffer = grbrl_cls.ExtendedReplayBuffer(
+        online_replay_buffer = grbrl_cls.ReplayBuffer(
             state_dim,
             action_dim,
             config.online_buffer_size,
@@ -384,7 +389,6 @@ def train(config: GrbrlTrainConfig):
     if config.pretrained_policy_path is not None:
         config.offline_iterations = 0
 
-    alpha = 1
 
     print("Offline pretraining")
     for t in range(int(config.offline_iterations) + int(config.online_iterations)):
@@ -404,7 +408,7 @@ def train(config: GrbrlTrainConfig):
                 episode_agent_types = []
                 config.ep_agent_type = 0
             else:
-                config.ep_agent_type = np.mean(episode_agent_types)
+                config.ep_agent_types = torch.mean(torch.stack(episode_agent_types))
 
             episode_step += 1
 
@@ -417,35 +421,14 @@ def train(config: GrbrlTrainConfig):
                 env,
                 actor,
                 guide,
-                alpha,
                 config,
                 config.device,
             )
             
             
                 
-            if use_learner:
-                episode_agent_types.append(1)
-                if not config.iql_deterministic:
-                    action = action.sample()
-                else:
-                    noise = (torch.randn_like(action) * config.expl_noise).clamp(
-                        -config.noise_clip, config.noise_clip
-                    )
-                    action += noise
-            else:
-                episode_agent_types.append(0)
+            episode_agent_types.append(use_learner)
             print(use_learner)
-            print(action)
-            if use_learner:
-                try:
-                    if config.add_alpha_dim:
-                        alpha = action[0][-1]
-                        action = action[0][:-1]
-                except IndexError:
-                    if config.add_alpha_dim:
-                        alpha = action[-1]
-                        action = action[:-1]
                 
             action = torch.clamp(max_action * action, -max_action, max_action)
             action = action.cpu().data.numpy().flatten()
@@ -464,13 +447,12 @@ def train(config: GrbrlTrainConfig):
                 reward = modify_reward_online(reward, config.env, **reward_mod_dict)
 
             if not config.adaptive_alpha:
-                config.agent_type_stage = alpha
-                if config.add_alpha_dim and use_learner:
-                    action = torch.concat((action, alpha))
-
+                print("Alph: ", config.agent_type_stage)
+                if config.add_alpha_dim:
+                    action = np.expand_dims(np.concatenate((action, torch.unsqueeze(config.agent_type_stage, axis=-1))), axis=0)
+                
             online_replay_buffer.add_transition(
-                state, action, reward, next_state, real_done, config.agent_type_stage
-            )
+                state, action, reward, next_state, real_done)
             state = next_state
             if done:
                 if seed_set:
@@ -486,7 +468,7 @@ def train(config: GrbrlTrainConfig):
                     online_log["train/regret"] = np.mean(1 - np.array(train_successes))
                     online_log["train/is_success"] = float(goal_achieved)
                 online_log["train/episode_return"] = episode_return
-                online_log["train/mean_ep_agent_type"] = np.mean(episode_agent_types)
+                online_log["train/mean_ep_agent_type"] = torch.mean(torch.stack(episode_agent_types))
                 if config.normalize_reward:
                     normalized_return = eval_env.get_normalized_score(episode_return)
                     online_log["train/d4rl_normalized_episode_return"] = (
@@ -526,7 +508,7 @@ def train(config: GrbrlTrainConfig):
                     success_rate,
                     config.mean_horizon_reached,
                     config.eval_mean_agent_type,
-                ) = eval_actor(eval_env, actor, guide, trainer.alpha_network, config)
+                ) = eval_actor(eval_env, actor, guide, config)
 
                 eval_score = eval_scores.mean()
                 eval_log = {}
