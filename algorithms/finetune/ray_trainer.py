@@ -1,7 +1,8 @@
 import pyrallis
 import ray
 import os
-from algorithms.finetune.iql_w_grbrl import JsrlTrainConfig, train
+#import pdb;pdb.set_trace()
+from iql_w_grbrl import GrbrlTrainConfig, train
 import time
 
 
@@ -18,7 +19,7 @@ def run_training(seed, train_config):
 
 
 @pyrallis.wrap()
-def run(train_config: JsrlTrainConfig, extra_config: dict):
+def run(train_config: GrbrlTrainConfig, extra_config: dict):
     rt_w_options = run_training.options(num_gpus=extra_config["gpu_frac"])
     object_references = [
         rt_w_options.remote(seed, train_config) for seed in extra_config["seeds"]
@@ -33,7 +34,7 @@ def run(train_config: JsrlTrainConfig, extra_config: dict):
 
 if __name__ == "__main__":
     extra_config = {}
-    seeds = range(4)
+    seeds = range(1,4)
 
     #for seed in seeds:
     #extra_config["seeds"] = [seed]

@@ -40,7 +40,7 @@ from iql import (
     wandb_init,
     wrap_env,
 )
-import algorithms.finetune.grbrl_utils as grbrl
+import grbrl_utils as grbrl
 import guide_heuristics as guide_heuristics
 
 
@@ -61,7 +61,8 @@ class GrbrlTrainConfig(TrainConfig):
     env_config: dict = field(default_factory=lambda: {})  # Environment configuration parameters
     downloaded_dataset: str = None  # Path to downloaded dataset, if any (pre-downloading the dataset is faster)
     pretrained_policy_path: str = None  # Path to pretrained policy file, if any
-
+    linear_decay: bool = False
+    static: bool = False
 
 @torch.no_grad()
 def eval_actor(
