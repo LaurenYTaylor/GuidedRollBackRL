@@ -1,0 +1,140 @@
+digraph {
+	graph [size="12,12"]
+	node [align=left fontname=monospace fontsize=10 height=0.2 ranksep=0.1 shape=box style=filled]
+	139751203394784 [label="
+ (1)" fillcolor=darkolivegreen1]
+	139751203486160 -> 139751203394544 [dir=none]
+	139751203394544 [label="result
+ (1)" fillcolor=orange]
+	139751203486160 [label="SigmoidBackward0
+----------------------
+result: [saved tensor]"]
+	139751203485680 -> 139751203486160
+	139751203485680 [label="AddBackward0
+------------
+alpha: 1"]
+	139751203485008 -> 139751203485680
+	139751203485008 [label="SqueezeBackward3
+------------------
+dim       :      0
+self_sizes: (1, 1)"]
+	139751203487312 -> 139751203485008
+	139751203487312 -> 139751203394864 [dir=none]
+	139751203394864 [label="mat2
+ (256, 1)" fillcolor=orange]
+	139751203487312 -> 139751203395104 [dir=none]
+	139751203395104 [label="self
+ (1, 256)" fillcolor=orange]
+	139751203487312 [label="MmBackward0
+----------------------------
+mat2        : [saved tensor]
+mat2_sizes  :       (256, 1)
+mat2_strides:       (1, 256)
+self        : [saved tensor]
+self_sizes  :       (1, 256)
+self_strides:       (256, 1)"]
+	139751203487408 -> 139751203487312
+	139751203487408 [label="UnsqueezeBackward0
+------------------
+dim: 0"]
+	139751203487552 -> 139751203487408
+	139751203487552 -> 139751203395264 [dir=none]
+	139751203395264 [label="result
+ (256)" fillcolor=orange]
+	139751203487552 [label="ReluBackward0
+----------------------
+result: [saved tensor]"]
+	139751203487648 -> 139751203487552
+	139751203487648 [label="AddBackward0
+------------
+alpha: 1"]
+	139751203487696 -> 139751203487648
+	139751203487696 [label="SqueezeBackward3
+--------------------
+dim       :        0
+self_sizes: (1, 256)"]
+	139751203307680 -> 139751203487696
+	139751203307680 -> 139751203395344 [dir=none]
+	139751203395344 [label="mat2
+ (256, 256)" fillcolor=orange]
+	139751203307680 -> 139751203395424 [dir=none]
+	139751203395424 [label="self
+ (1, 256)" fillcolor=orange]
+	139751203307680 [label="MmBackward0
+----------------------------
+mat2        : [saved tensor]
+mat2_sizes  :     (256, 256)
+mat2_strides:       (1, 256)
+self        : [saved tensor]
+self_sizes  :       (1, 256)
+self_strides:       (256, 1)"]
+	139751203307776 -> 139751203307680
+	139751203307776 [label="UnsqueezeBackward0
+------------------
+dim: 0"]
+	139751203307920 -> 139751203307776
+	139751203307920 -> 139751203395584 [dir=none]
+	139751203395584 [label="result
+ (256)" fillcolor=orange]
+	139751203307920 [label="ReluBackward0
+----------------------
+result: [saved tensor]"]
+	139751203308016 -> 139751203307920
+	139751203308016 [label="AddBackward0
+------------
+alpha: 1"]
+	139751203308112 -> 139751203308016
+	139751203308112 [label="SqueezeBackward3
+--------------------
+dim       :        0
+self_sizes: (1, 256)"]
+	139751203308208 -> 139751203308112
+	139751203308208 -> 139751203395184 [dir=none]
+	139751203395184 [label="self
+ (1, 30)" fillcolor=orange]
+	139751203308208 [label="MmBackward0
+----------------------------
+mat2        :           None
+mat2_sizes  :      (30, 256)
+mat2_strides:        (1, 30)
+self        : [saved tensor]
+self_sizes  :        (1, 30)
+self_strides:             ()"]
+	139751203308304 -> 139751203308208
+	139751203308304 [label=TBackward0]
+	139751203487072 -> 139751203308304
+	139751204018656 [label="a.net.0.weight
+ (256, 30)" fillcolor=lightblue]
+	139751204018656 -> 139751203487072
+	139751203487072 [label=AccumulateGrad]
+	139751203485152 -> 139751203308016
+	139751204018736 [label="a.net.0.bias
+ (256)" fillcolor=lightblue]
+	139751204018736 -> 139751203485152
+	139751203485152 [label=AccumulateGrad]
+	139751203307728 -> 139751203307680
+	139751203307728 [label=TBackward0]
+	139751203485488 -> 139751203307728
+	139751204018816 [label="a.net.2.weight
+ (256, 256)" fillcolor=lightblue]
+	139751204018816 -> 139751203485488
+	139751203485488 [label=AccumulateGrad]
+	139751203485968 -> 139751203487648
+	139751204018896 [label="a.net.2.bias
+ (256)" fillcolor=lightblue]
+	139751204018896 -> 139751203485968
+	139751203485968 [label=AccumulateGrad]
+	139751203487360 -> 139751203487312
+	139751203487360 [label=TBackward0]
+	139751203486208 -> 139751203487360
+	139751204018976 [label="a.net.4.weight
+ (1, 256)" fillcolor=lightblue]
+	139751204018976 -> 139751203486208
+	139751203486208 [label=AccumulateGrad]
+	139751203486400 -> 139751203485680
+	139751204019056 [label="a.net.4.bias
+ (1)" fillcolor=lightblue]
+	139751204019056 -> 139751203486400
+	139751203486400 [label=AccumulateGrad]
+	139751203486160 -> 139751203394784
+}
