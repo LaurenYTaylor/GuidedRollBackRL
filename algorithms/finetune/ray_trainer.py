@@ -34,7 +34,7 @@ def run(train_config: GrbrlTrainConfig, extra_config: dict):
 
 if __name__ == "__main__":
     extra_config = {}
-    seeds = range(1,4)
+    seeds = range(4)
 
     #for seed in seeds:
     #extra_config["seeds"] = [seed]
