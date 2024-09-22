@@ -55,7 +55,7 @@ class GrbrlTrainConfig(TrainConfig):
     max_init_horizon: bool = False  # Whether to use the maximum or mean initial horizon (e.g. time step) as curriculum stage 1
     guide_heuristic_fn: str = None  # Name of the guide heuristic function in guide_heuristics.py, if any
     variance_learn_frac: float = 0.5  # if horizon=="variance", how often the variance learner should take a random action
-    enable_rollback: bool = True  # Set True for GRBRL, or False for SSRL
+    enable_rollback: bool = True  # Set True for GRBRL, or False for GRL
     sample_rate: float = 1.0  # how often the guide action is set to non-optimal
     correct_learner_action: float = 0.0  # how often the learner action if set to optimal (combo lock only)
     env_config: dict = field(default_factory=lambda: {})  # Environment configuration parameters

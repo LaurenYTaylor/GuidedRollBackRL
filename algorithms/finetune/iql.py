@@ -58,7 +58,7 @@ class TrainConfig:
     qf_lr: float = 3e-4  # Critic learning rate
     actor_lr: float = 3e-4  # Actor learning rate
     # Wandb logging
-    project: str = "jsrl-CORL-neurips"
+    project: str = "jsrl-CORL-neurips-badguide"
     group: str = "IQL-Combo-Basics"
     name: str = "IQL"
 

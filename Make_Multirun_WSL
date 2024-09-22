@@ -11,11 +11,17 @@ build:
 	-t jsrl-corl \
 	.
 
-run1:
+run18:
 	docker run $(DOCKER_EXTRAS) \
-	jsrl-corl python $(RUN_FILE) --horizon_fn time_step --checkpoints_path checkpoints --env antmaze-umaze-v2 --static True --normalize True --tolerance 0.9 --normalize_reward True --enable_rollback False --iql_deterministic False --beta 10 --learner_frac 0.25 --correct_learner_action 1 --iql_tau 0.9 --eval_freq 10000 --n_episodes 100 --offline_iterations 0 --online_iterations 1000000 --pretrained_policy_path jsrl-CORL/algorithms/finetune/checkpoints/IQL-antmaze-umaze-v2-offline/checkpoint_999999.pt --device cpu  ;
+	jsrl-corl python $(RUN_FILE) --horizon_fn time_step --checkpoints_path checkpoints --env antmaze-large-play-v2 --static True --normalize True --learner_frac 0.032 --tolerance 0.9 --normalize_reward True --enable_rollback False --iql_deterministic False --beta 10 --learner_frac 0.25 --correct_learner_action 0.9 --iql_tau 0.9 --eval_freq 10000 --online_buffer_size 10000 --n_episodes 20 --n_curriculum_stages 5 --offline_iterations 0 --online_iterations 1000000 --pretrained_policy_path jsrl-CORL/algorithms/finetune/checkpoints/IQL-antmaze-large-play-v2-offline/checkpoint_999999.pt --device cpu ;
 
+run19:
+	docker run $(DOCKER_EXTRAS) \
+	jsrl-corl python $(RUN_FILE) --horizon_fn time_step --checkpoints_path checkpoints --env antmaze-large-play-v2 --static True --normalize True --learner_frac 0.032 --tolerance 0.9 --normalize_reward True --enable_rollback False --iql_deterministic False --beta 10 --learner_frac 0.75 --correct_learner_action 0.9 --iql_tau 0.9 --eval_freq 10000 --online_buffer_size 10000 --n_episodes 20 --n_curriculum_stages 5 --offline_iterations 0 --online_iterations 1000000 --pretrained_policy_path jsrl-CORL/algorithms/finetune/checkpoints/IQL-antmaze-large-play-v2-offline/checkpoint_999999.pt --device cpu ;
 
+run20:
+	docker run $(DOCKER_EXTRAS) \
+	jsrl-corl python $(RUN_FILE) --horizon_fn time_step --checkpoints_path checkpoints --env antmaze-large-play-v2 --static False --linear_decay True --normalize True --learner_frac 0.032 --tolerance 0.9 --normalize_reward True --enable_rollback False --iql_deterministic False --beta 10 --learner_frac 0.25 --correct_learner_action 0.9 --iql_tau 0.9 --eval_freq 10000 --online_buffer_size 10000 --n_episodes 20 --n_curriculum_stages 5 --offline_iterations 0 --online_iterations 1000000 --pretrained_policy_path jsrl-CORL/algorithms/finetune/checkpoints/IQL-antmaze-large-play-v2-offline/checkpoint_999999.pt --device cpu ;
 run2:
 	docker run $(DOCKER_EXTRAS) \
 	jsrl-corl python $(RUN_FILE) --horizon_fn time_step --checkpoints_path checkpoints --env antmaze-medium-play-v2  --static True --normalize True --tolerance 0.9 --normalize_reward True --enable_rollback False --iql_deterministic False --beta 10 --learner_frac 0.25 --correct_learner_action 1.0 --iql_tau 0.9 --eval_freq 10000 --n_episodes 100 --pretrained_policy_path jsrl-CORL/algorithms/finetune/checkpoints/IQL-antmaze-medium-play-v2-offline/checkpoint_999999.pt --offline_iterations 0 --online_iterations 1000000 --device cpu  ;
@@ -25,16 +31,40 @@ run3:
 	docker run $(DOCKER_EXTRAS) \
 	jsrl-corl python $(RUN_FILE) --horizon_fn time_step --checkpoints_path checkpoints --env antmaze-large-play-v2 --static True --normalize True --tolerance 0.9 --normalize_reward True --enable_rollback False --iql_deterministic False --beta 10 --learner_frac 0.25 --correct_learner_action 1.0 --iql_tau 0.9 --eval_freq 10000 --n_episodes 100 --pretrained_policy_path jsrl-CORL/algorithms/finetune/checkpoints/IQL-antmaze-large-play-v2-offline/checkpoint_999999.pt --offline_iterations 0 --online_iterations 1000000 --device cpu ;
 
-run4:
-	docker run $(DOCKER_EXTRAS) \
-	jsrl-corl python $(RUN_FILE) --env CombinationLock-v0 --static true --learner_frac 1 --online_buffer_size 64 --guide_heuristic_fn combination_lock --offline_iterations 0 --env_config '{"horizon": 10}' --tolerance 0.75 --n_episodes 250 --eval_freq 1 --batch_size 10 --beta 10 --iql_tau 0.9 --horizon_fn time_step --name IQL-test --device cpu --online_iterations 300 --seed 0 --iql_deterministic True --enable_rollback True --sample_rate 0.9 ;
-
 run5:
 	docker run $(DOCKER_EXTRAS) \
-	jsrl-corl python $(RUN_FILE) --env CombinationLock-v0 --static true --learner_frac 1 --online_buffer_size 64 --guide_heuristic_fn combination_lock --offline_iterations 0 --env_config '{"horizon": 10}' --tolerance 0.25 --n_episodes 250 --eval_freq 1 --batch_size 10 --beta 10 --iql_tau 0.9 --horizon_fn time_step --name IQL-test --device cpu --online_iterations 300 --seed 0 --iql_deterministic True --enable_rollback True --sample_rate 0.9 ;
+	jsrl-corl python $(RUN_FILE) --env CombinationLock-v0 --static True --enable_rollback False --learner_frac 0.25 --online_buffer_size 64 --guide_heuristic_fn combination_lock --offline_iterations 0 --env_config '{"horizon": 10}' --tolerance 0.75 --n_episodes 250 --eval_freq 1 --batch_size 10 --beta 10 --iql_tau 0.9 --horizon_fn time_step --name IQL-test --device cpu --online_iterations 300 --seed 0 --iql_deterministic True --sample_rate 0.9 ;
 
 run6:
 	docker run $(DOCKER_EXTRAS) \
-	jsrl-corl python $(RUN_FILE) --env CombinationLock-v0 --linear_decay true --learner_frac -1 --online_buffer_size 64 --guide_heuristic_fn combination_lock --offline_iterations 0 --env_config '{"horizon": 10}' --tolerance 0.25 --n_episodes 250 --eval_freq 1 --batch_size 10 --beta 10 --iql_tau 0.9 --horizon_fn time_step --name IQL-test --device cpu --online_iterations 300 --seed 0 --iql_deterministic True --enable_rollback True --sample_rate 0.9 ;
+	jsrl-corl python $(RUN_FILE) --env CombinationLock-v0 --static True --enable_rollback False --learner_frac 0.75 --online_buffer_size 64 --guide_heuristic_fn combination_lock --offline_iterations 0 --env_config '{"horizon": 10}' --tolerance 0.3 --n_episodes 250 --eval_freq 1 --batch_size 10 --beta 10 --iql_tau 0.9 --horizon_fn time_step --name IQL-test --device cpu --online_iterations 300 --seed 0 --iql_deterministic True --sample_rate 0.9 ;
 
-build_and_run: build run4 run5 run6
+run7:
+	docker run $(DOCKER_EXTRAS) \
+	jsrl-corl python $(RUN_FILE) --env CombinationLock-v0 --linear_decay True --enable_rollback False --learner_frac -1 --online_buffer_size 64 --guide_heuristic_fn combination_lock --offline_iterations 0 --env_config '{"horizon": 10}' --tolerance 0.25 --n_episodes 250 --eval_freq 1 --batch_size 10 --beta 10 --iql_tau 0.9 --horizon_fn time_step --name IQL-test --device cpu --online_iterations 300 --seed 0 --iql_deterministic True --sample_rate 0.9 ;
+
+run8:
+	docker run $(DOCKER_EXTRAS) \
+	jsrl-corl python $(RUN_FILE) --env CombinationLock-v0 --static True --enable_rollback False --learner_frac 0.25 --online_buffer_size 64 --guide_heuristic_fn combination_lock --offline_iterations 0 --env_config '{"horizon": 10}' --tolerance 0.75 --n_episodes 250 --eval_freq 1 --batch_size 10 --beta 10 --iql_tau 0.9 --horizon_fn time_step --name IQL-test --device cpu --online_iterations 300 --seed 0 --iql_deterministic True --sample_rate 0.9 --correct_learner_action 0.5 ;
+
+run9:
+	docker run $(DOCKER_EXTRAS) \
+	jsrl-corl python $(RUN_FILE) --env CombinationLock-v0 --static True --enable_rollback False --learner_frac 0.75 --online_buffer_size 64 --guide_heuristic_fn combination_lock --offline_iterations 0 --env_config '{"horizon": 10}' --tolerance 0.75 --n_episodes 250 --eval_freq 1 --batch_size 10 --beta 10 --iql_tau 0.9 --horizon_fn time_step --name IQL-test --device cpu --online_iterations 300 --seed 0 --iql_deterministic True --sample_rate 0.9 --correct_learner_action 0.5 ;
+
+run10:
+	docker run $(DOCKER_EXTRAS) \
+	jsrl-corl python $(RUN_FILE) --env CombinationLock-v0 --linear_decay True --enable_rollback False --learner_frac -1 --online_buffer_size 64 --guide_heuristic_fn combination_lock --offline_iterations 0 --env_config '{"horizon": 10}' --tolerance 0.25 --n_episodes 250 --eval_freq 1 --batch_size 10 --beta 10 --iql_tau 0.9 --horizon_fn time_step --name IQL-test --device cpu --online_iterations 300 --seed 0 --iql_deterministic True --sample_rate 0.9 --correct_learner_action 0.5 ;
+
+run11:
+	docker run $(DOCKER_EXTRAS) \
+	jsrl-corl python $(RUN_FILE) --env CombinationLock-v0 --static True --enable_rollback False --learner_frac 0.25 --online_buffer_size 64 --guide_heuristic_fn combination_lock --offline_iterations 0 --env_config '{"horizon": 10}' --tolerance 0.75 --n_episodes 250 --eval_freq 1 --batch_size 10 --beta 10 --iql_tau 0.9 --horizon_fn time_step --name IQL-test --device cpu --online_iterations 300 --seed 0 --iql_deterministic True --sample_rate 1.0 --correct_learner_action 0 ;
+
+run12:
+	docker run $(DOCKER_EXTRAS) \
+	jsrl-corl python $(RUN_FILE) --env CombinationLock-v0 --static True --enable_rollback False --learner_frac 0.75 --online_buffer_size 64 --guide_heuristic_fn combination_lock --offline_iterations 0 --env_config '{"horizon": 10}' --tolerance 0.75 --n_episodes 250 --eval_freq 1 --batch_size 10 --beta 10 --iql_tau 0.9 --horizon_fn time_step --name IQL-test --device cpu --online_iterations 300 --seed 0 --iql_deterministic True --sample_rate 1.0 --correct_learner_action 0 ;
+
+run13:
+	docker run $(DOCKER_EXTRAS) \
+	jsrl-corl python $(RUN_FILE) --env CombinationLock-v0 --linear_decay True --enable_rollback False --learner_frac -1 --online_buffer_size 64 --guide_heuristic_fn combination_lock --offline_iterations 0 --env_config '{"horizon": 10}' --tolerance 0.25 --n_episodes 250 --eval_freq 1 --batch_size 10 --beta 10 --iql_tau 0.9 --horizon_fn time_step --name IQL-test --device cpu --online_iterations 300 --seed 0 --iql_deterministic True --sample_rate 1.0 --correct_learner_action 0 ;
+
+build_and_run: build run8 run9 run10 run11 run12 run13

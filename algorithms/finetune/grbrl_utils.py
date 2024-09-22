@@ -174,11 +174,12 @@ def prepare_finetuning(init_horizon, mean_return, config):
         config.agent_type_stage = 1
     if config.learner_frac < 0:
         if config.linear_decay:
-            config.learner_frac = 1/(config.online_iterations/config.eval_freq)
+            config.learner_frac = 1/(((config.online_iterations-config.batch_size)/config.eval_freq)-1)
         else:
             H = int(init_horizon) 
             guide_sample = config.sample_rate
             learner_sample = (1-config.correct_learner_action)
+            #import pdb;pdb.set_trace()
             config.learner_frac = 1-(((config.tolerance)**(1/H)*guide_sample-(1-learner_sample))/(guide_sample-(1-learner_sample)))
     config.agent_type_stage = config.learner_frac
     config.best_eval_score = {}
