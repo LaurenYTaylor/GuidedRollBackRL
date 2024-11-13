@@ -40,7 +40,7 @@ from iql import (
     wandb_init,
     wrap_env,
 )
-import algorithms.finetune.grbrl_utils as grbrl
+import grbrl_utils as grbrl
 import guide_heuristics as guide_heuristics
 
 
