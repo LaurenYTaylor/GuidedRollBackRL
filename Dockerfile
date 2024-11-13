@@ -34,14 +34,8 @@ ENV LD_LIBRARY_PATH /root/.mujoco/mujoco210/bin:${LD_LIBRARY_PATH}
 # installing poetry & env setup, mujoco_py compilation
 COPY requirements/requirements.txt requirements.txt
 RUN pip install -r requirements.txt
-RUN pip install "cython<3" ray h5py gymnasium[box2d]
+RUN pip install "cython<3" ray h5py gymnasium[box2d] gymnasium_robotics
 RUN ["python", "-c", "import mujoco_py"]
-
-RUN pip install pypatch
-COPY lunarlander.patch lunarlander.patch
-COPY lunarlander-seed.patch lunarlander-seed.patch 
-RUN pypatch apply lunarlander.patch gymnasium
-RUN pypatch apply lunarlander-seed.patch gymnasium
 
 RUN mkdir checkpoints
 RUN mkdir wandb

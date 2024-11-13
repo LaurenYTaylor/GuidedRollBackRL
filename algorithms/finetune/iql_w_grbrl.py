@@ -21,7 +21,9 @@ import torch
 import torch.nn.functional as F
 import wandb
 import h5py
-from gymnasium.wrappers import StepAPICompatibility
+#from gymnasium.wrappers import StepAPICompatibility
+import gymnasium_robotics
+
 
 from iql import (
     ENVS_WITH_GOAL,
@@ -40,7 +42,7 @@ from iql import (
     wandb_init,
     wrap_env,
 )
-import algorithms.finetune.grbrl_utils as grbrl
+import grbrl_utils as grbrl
 import guide_heuristics as guide_heuristics
 
 
@@ -260,8 +262,8 @@ def train(config: GrbrlTrainConfig):
     """
     # Added functionality for handling both Gym/Gymnasium envs
     try:
-        env = StepAPICompatibility(gymnasium.make(config.env, **config.env_config), output_truncation_bool=False)
-        eval_env = StepAPICompatibility(gymnasium.make(config.env, **config.env_config), output_truncation_bool=False)
+        env = gymnasium.make(config.env, **config.env_config,apply_api_compatability=True)
+        eval_env = gymnasium.make(config.env, **config.env_config, apply_api_compatability=True)
         max_steps = env.spec.max_episode_steps
     except:
         env = gym.make(config.env, **config.env_config)

@@ -73,6 +73,8 @@ def horizon_update_callback(config, eval_reward, N):
     GrbrlTrainConfig
         The updated configuration parameters after horizon update.
     """
+    if config.n_curriculum_stages == 1:
+        return config
     prev_best = -np.inf
     eval_reward = -config.mean_horizon_reached
     
@@ -164,12 +166,13 @@ def prepare_finetuning(init_horizon, mean_return, config):
     config.curriculum_stage_idx = 0
     if config.n_curriculum_stages == 1:
         config.agent_type_stage = 1
-    if config.learner_frac < 0:
-        H = int(init_horizon) 
-        guide_sample = config.sample_rate
-        learner_sample = (1-config.correct_learner_action)
-        config.learner_frac = 1-(((config.tolerance)**(1/H)*guide_sample-(1-learner_sample))/(guide_sample-(1-learner_sample)))
-    config.agent_type_stage = config.learner_frac
+    else:
+        if config.learner_frac < 0:
+            H = int(init_horizon) 
+            guide_sample = config.sample_rate
+            learner_sample = (1-config.correct_learner_action)
+            config.learner_frac = 1-(((config.tolerance)**(1/H)*guide_sample-(1-learner_sample))/(guide_sample-(1-learner_sample)))
+        config.agent_type_stage = config.learner_frac
     config.best_eval_score = {}
     config.best_eval_score[0] = mean_return
     config.rolled_back = False
