@@ -21,7 +21,9 @@ import torch
 import torch.nn.functional as F
 import wandb
 import h5py
-from gymnasium.wrappers import StepAPICompatibility
+#from gymnasium.wrappers import StepAPICompatibility
+import gymnasium_robotics
+gymnasium.register_envs(gymnasium_robotics)
 
 from iql import (
     ENVS_WITH_GOAL,
@@ -136,7 +138,11 @@ def eval_actor(
                 ep_agent_types.append(1)
             else:
                 ep_agent_types.append(0)
-            state, reward, done, env_infos = env.step(action)
+            try:
+                state, reward, done, env_infos = env.step(action)
+            except ValueError:
+                state, reward, term, trunc, env_infos = env.step(action)
+                done = term or trunc
             episode_reward += reward
             ts += 1
             if not goal_achieved:
@@ -242,6 +248,20 @@ def get_online_buffer(config, replay_buffer, state_dim, action_dim):
         online_replay_buffer = replay_buffer
     return online_replay_buffer
 
+def process_minari_data(downloaded_data):
+    rearranged_data = {"actions": [], "infos": [], "observations": [],
+                       "rewards": [], "terminals": [], "timeouts": []}
+    for k,v in downloaded_data.items():
+        rearranged_data["observations"].extend(v['observations'])
+        rearranged_data["actions"].extend(v['actions'])
+        rearranged_data["infos"].extend(v['infos'])
+        rearranged_data["rewards"].extend(v['rewards'])
+        rearranged_data["timeouts"].extend(v['truncations'])
+        rearranged_data["terminals"].extend(v['terminations'])
+    for k,v in rearranged_data.items():
+        rearranged_data[k] = np.array(v)
+    return rearranged_data
+
 def train(config: GrbrlTrainConfig):
     """
     Train an learning agent using GRBRL method (gradual online transfer from pre-trained guide agent to learner).
@@ -260,8 +280,8 @@ def train(config: GrbrlTrainConfig):
     """
     # Added functionality for handling both Gym/Gymnasium envs
     try:
-        env = StepAPICompatibility(gymnasium.make(config.env, **config.env_config), output_truncation_bool=False)
-        eval_env = StepAPICompatibility(gymnasium.make(config.env, **config.env_config), output_truncation_bool=False)
+        env = gymnasium.make(config.env, **config.env_config)
+        eval_env = gymnasium.make(config.env, **config.env_config)
         max_steps = env.spec.max_episode_steps
     except:
         env = gym.make(config.env, **config.env_config)
@@ -286,6 +306,9 @@ def train(config: GrbrlTrainConfig):
 
         with h5py.File(config.downloaded_dataset, "r") as f:
             downloaded_data = get_keys(f, {})
+
+        if 'episode_1' in downloaded_data.keys():
+            downloaded_data = process_minari_data(downloaded_data)
         dataset = d4rl.qlearning_dataset(env, dataset=downloaded_data)
     elif config.guide_heuristic_fn is None:
         dataset = d4rl.qlearning_dataset(env)
@@ -311,7 +334,6 @@ def train(config: GrbrlTrainConfig):
         dataset["next_observations"] = normalize_states(
             dataset["next_observations"], state_mean, state_std
         )
-
         env = wrap_env(env, state_mean=state_mean, state_std=state_std)
         eval_env = wrap_env(eval_env, state_mean=state_mean, state_std=state_std)
         replay_buffer = ReplayBuffer(
@@ -427,7 +449,12 @@ def train(config: GrbrlTrainConfig):
             action = torch.clamp(max_action * action, -max_action, max_action)
             action = action.cpu().data.numpy().flatten()
 
-            next_state, reward, done, env_infos = env.step(action)
+            try:
+                next_state, reward, done, env_infos = env.step(action)
+            except ValueError:
+                next_state, reward, term, trunc, env_infos = env.step(action)
+                done = term or trunc
+            
 
             if not goal_achieved:
                 goal_achieved = is_goal_reached(reward, env_infos)
@@ -535,7 +562,7 @@ def train(config: GrbrlTrainConfig):
                         os.path.join(config.checkpoints_path, f"checkpoint_{t}.pt"),
                     )
                 wandb.log(eval_log, step=trainer.total_it)
-    wandb.run.finish()
+    wandb.finish(exit_code=0)
 
 
 if __name__ == "__main__":

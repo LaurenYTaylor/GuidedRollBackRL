@@ -4,7 +4,6 @@ import os
 from iql_w_grbrl import GrbrlTrainConfig, train
 import time
 
-
 @ray.remote
 def run_training(seed, train_config):
     train_config.seed = seed
@@ -33,7 +32,7 @@ def run(train_config: GrbrlTrainConfig, extra_config: dict):
 
 if __name__ == "__main__":
     extra_config = {}
-    seeds = range(4)
+    seeds = range(1)
 
     #for seed in seeds:
     #extra_config["seeds"] = [seed]
